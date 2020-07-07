@@ -547,7 +547,15 @@ else()
 endif()
 
 set(LLVM_BINDINGS "")
-find_program(GO_EXECUTABLE NAMES go DOC "go executable")
+#First check registry for Go Language Location
+GET_FILENAME_COMPONENT(GoInstallDir "[HKEY_CURRENT_USER\\Software\\GoProgrammingLanguage;installLocation]" ABSOLUTE CACHE)
+if(CMAKE_GENERATOR STREQUAL "")
+  find_program(GO_EXECUTABLE NAMES go DOC "go executable")
+else()
+  message(STATUS "Go Installed at ${GoInstallDir}")
+  set(GO_EXECUTABLE ${GoInstallDir}/bin/go.exe)
+endif()
+
 if(WIN32 OR NOT LLVM_ENABLE_BINDINGS)
   message(STATUS "Go bindings disabled.")
 else()
