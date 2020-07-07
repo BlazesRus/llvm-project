@@ -1,6 +1,7 @@
 if( WIN32 AND NOT CYGWIN )
   # We consider Cygwin as another Unix
   set(PURE_WINDOWS 1)
+  message(STATUS "Pure Windows Mode Active")
 endif()
 
 include(CheckIncludeFile)
@@ -661,17 +662,20 @@ function(find_python_module module)
 endfunction()
 
 set (PYTHON_MODULES
-  pygments
+  #pygments
+  Pygments
   # Some systems still don't have pygments.lexers.c_cpp which was introduced in
-  # version 2.0 in 2014...
-  pygments.lexers.c_cpp
-  yaml
+  # version 2.0 in 2014... pygments.lexers.c_cpp is already part of Pygments
+  #pygments.lexers.c_cpp
+  PyYAML
+  #yaml
   )
 foreach(module ${PYTHON_MODULES})
   find_python_module(${module})
 endforeach()
 
-if(PY_PYGMENTS_FOUND AND PY_PYGMENTS_LEXERS_C_CPP_FOUND AND PY_YAML_FOUND)
+#if(PY_PYGMENTS_FOUND AND PY_PYGMENTS_LEXERS_C_CPP_FOUND AND PY_YAML_FOUND)
+if(PY_PYGMENTS_FOUND AND PY_PYYAML_FOUND)
   set (LLVM_HAVE_OPT_VIEWER_MODULES 1)
 else()
   set (LLVM_HAVE_OPT_VIEWER_MODULES 0)
