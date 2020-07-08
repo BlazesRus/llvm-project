@@ -694,3 +694,8 @@ else()
   endif()
 endif()
 
+if(DEFINED ENV{BOOST_ROOT})
+  set(BOOSTDIR $ENV{BOOST_ROOT})
+ else()
+   set(BOOSTDIR C:/BoostLib/)
+endif()
