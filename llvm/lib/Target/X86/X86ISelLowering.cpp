@@ -36935,11 +36935,16 @@ bool X86TargetLowering::SimplifyDemandedVectorEltsForTargetShuffle(
     return false;
 
   const Constant *C = getTargetConstantFromNode(Load);
-  if (!C || !C->getType()->isVectorTy())
+  if (!C)
+    return false;
+
+  Type *CTy = C->getType();
+  if (!CTy->isVectorTy() ||
+      CTy->getPrimitiveSizeInBits() != Mask.getValueSizeInBits())
     return false;
 
   // Handle scaling for i64 elements on 32-bit targets.
-  unsigned NumCstElts = cast<FixedVectorType>(C->getType())->getNumElements();
+  unsigned NumCstElts = cast<FixedVectorType>(CTy)->getNumElements();
   if (NumCstElts != NumElts && NumCstElts != (NumElts * 2))
     return false;
   unsigned Scale = NumCstElts / NumElts;
@@ -38963,9 +38968,6 @@ static SDValue combineExtractWithShuffle(SDNode *N, SelectionDAG &DAG,
   // Handle extract(bitcast(broadcast(scalar_value))).
   if (X86ISD::VBROADCAST == SrcBC.getOpcode()) {
     SDValue SrcOp = SrcBC.getOperand(0);
-    if (SrcOp.getValueSizeInBits() == VT.getSizeInBits())
-      return DAG.getBitcast(VT, SrcOp);
-
     EVT SrcOpVT = SrcOp.getValueType();
     if (SrcOpVT.isScalarInteger() && VT.isInteger() &&
         (SrcOpVT.getSizeInBits() % SrcEltBits) == 0) {
@@ -40309,17 +40311,41 @@ static SDValue combineSelect(SDNode *N, SelectionDAG &DAG,
       cast<CondCodeSDNode>(Cond.getOperand(2))->get() == ISD::SETEQ &&
       Cond.getOperand(0).getValueType() == VT) {
     // The 'and' mask must be composed of power-of-2 constants.
-    // TODO: This is limited to splats because the availability/lowering of
-    //       non-uniform shifts and variable blend types is lumpy. Supporting
-    //       arbitrary power-of-2 vector constants will make the code more
-    //       complicated and may require target limitations to ensure that the
-    //       transform is profitable.
-    auto *C = isConstOrConstSplat(Cond.getOperand(0).getOperand(1));
+    SDValue And = Cond.getOperand(0);
+    auto *C = isConstOrConstSplat(And.getOperand(1));
     if (C && C->getAPIntValue().isPowerOf2()) {
       // vselect (X & C == 0), LHS, RHS --> vselect (X & C != 0), RHS, LHS
-      SDValue NotCond = DAG.getSetCC(DL, CondVT, Cond.getOperand(0),
-                                     Cond.getOperand(1), ISD::SETNE);
+      SDValue NotCond =
+          DAG.getSetCC(DL, CondVT, And, Cond.getOperand(1), ISD::SETNE);
       return DAG.getSelect(DL, VT, NotCond, RHS, LHS);
+    }
+
+    // If we have a non-splat but still powers-of-2 mask, AVX1 can use pmulld
+    // and AVX2 can use vpsllv{dq}. 8-bit lacks a proper shift or multiply.
+    // 16-bit lacks a proper blendv.
+    unsigned EltBitWidth = VT.getScalarSizeInBits();
+    bool CanShiftBlend =
+        TLI.isTypeLegal(VT) && ((Subtarget.hasAVX() && EltBitWidth == 32) ||
+                                (Subtarget.hasAVX2() && EltBitWidth == 64) ||
+                                (Subtarget.hasXOP()));
+    if (CanShiftBlend &&
+        ISD::matchUnaryPredicate(And.getOperand(1), [](ConstantSDNode *C) {
+          return C->getAPIntValue().isPowerOf2();
+        })) {
+      // Create a left-shift constant to get the mask bits over to the sign-bit.
+      SDValue Mask = And.getOperand(1);
+      SmallVector<int, 32> ShlVals;
+      for (unsigned i = 0, e = VT.getVectorNumElements(); i != e; ++i) {
+        auto *MaskVal = cast<ConstantSDNode>(Mask.getOperand(i));
+        ShlVals.push_back(EltBitWidth - 1 -
+                          MaskVal->getAPIntValue().exactLogBase2());
+      }
+      // vsel ((X & C) == 0), LHS, RHS --> vsel ((shl X, C') < 0), RHS, LHS
+      SDValue ShlAmt = getConstVector(ShlVals, VT.getSimpleVT(), DAG, DL);
+      SDValue Shl = DAG.getNode(ISD::SHL, DL, VT, And.getOperand(0), ShlAmt);
+      SDValue NewCond =
+          DAG.getSetCC(DL, CondVT, Shl, Cond.getOperand(1), ISD::SETLT);
+      return DAG.getSelect(DL, VT, NewCond, RHS, LHS);
     }
   }
 
@@ -41856,12 +41882,56 @@ static SDValue combineShiftRightLogical(SDNode *N, SelectionDAG &DAG,
   return SDValue();
 }
 
+static SDValue combineVectorPackWithShuffle(SDNode *N, SelectionDAG &DAG) {
+  unsigned Opcode = N->getOpcode();
+  assert((X86ISD::PACKSS == Opcode || X86ISD::PACKUS == Opcode) &&
+         "Unexpected pack opcode");
+
+  EVT VT = N->getValueType(0);
+  SDValue N0 = N->getOperand(0);
+  SDValue N1 = N->getOperand(1);
+  unsigned NumDstElts = VT.getVectorNumElements();
+
+  // Attempt to fold PACK(LOSUBVECTOR(SHUFFLE(X)),HISUBVECTOR(SHUFFLE(X)))
+  // to SHUFFLE(PACK(LOSUBVECTOR(X),HISUBVECTOR(X))), this is mainly for
+  // truncation trees that help us avoid lane crossing shuffles.
+  // TODO: There's a lot more we can do for PACK/HADD style shuffle combines.
+  if (N0.getOpcode() == ISD::EXTRACT_SUBVECTOR &&
+      N1.getOpcode() == ISD::EXTRACT_SUBVECTOR &&
+      N0.getConstantOperandAPInt(1) == 0 &&
+      N1.getConstantOperandAPInt(1) == (NumDstElts / 2) &&
+      N0.getOperand(0) == N1.getOperand(0) && VT.is128BitVector() &&
+      N0.getOperand(0).getValueType().is256BitVector()) {
+    // TODO - support target/faux shuffles.
+    SDValue Vec = peekThroughBitcasts(N0.getOperand(0));
+    if (auto *SVN = dyn_cast<ShuffleVectorSDNode>(Vec)) {
+      // To keep the PACK LHS/RHS coherency, we must be able to scale the unary
+      // shuffle to a vXi64 width - we can probably relax this in the future.
+      SmallVector<int, 4> ShuffleMask;
+      if (SVN->getOperand(1).isUndef() &&
+          scaleShuffleElements(SVN->getMask(), 4, ShuffleMask)) {
+        SDLoc DL(N);
+        SDValue Lo, Hi;
+        std::tie(Lo, Hi) = DAG.SplitVector(SVN->getOperand(0), DL);
+        Lo = DAG.getBitcast(N0.getValueType(), Lo);
+        Hi = DAG.getBitcast(N1.getValueType(), Hi);
+        SDValue Res = DAG.getNode(Opcode, DL, VT, Lo, Hi);
+        Res = DAG.getBitcast(MVT::v4i32, Res);
+        Res = DAG.getVectorShuffle(MVT::v4i32, DL, Res, Res, ShuffleMask);
+        return DAG.getBitcast(VT, Res);
+      }
+    }
+  }
+
+  return SDValue();
+}
+
 static SDValue combineVectorPack(SDNode *N, SelectionDAG &DAG,
                                  TargetLowering::DAGCombinerInfo &DCI,
                                  const X86Subtarget &Subtarget) {
   unsigned Opcode = N->getOpcode();
   assert((X86ISD::PACKSS == Opcode || X86ISD::PACKUS == Opcode) &&
-         "Unexpected shift opcode");
+         "Unexpected pack opcode");
 
   EVT VT = N->getValueType(0);
   SDValue N0 = N->getOperand(0);
@@ -41929,36 +41999,9 @@ static SDValue combineVectorPack(SDNode *N, SelectionDAG &DAG,
     return getConstVector(Bits, Undefs, VT.getSimpleVT(), DAG, SDLoc(N));
   }
 
-  // Attempt to fold PACK(LOSUBVECTOR(SHUFFLE(X)),HISUBVECTOR(SHUFFLE(X)))
-  // to SHUFFLE(PACK(LOSUBVECTOR(X),HISUBVECTOR(X))), this is mainly for
-  // truncation trees that help us avoid lane crossing shuffles.
-  // TODO: There's a lot more we can do for PACK/HADD style shuffle combines.
-  if (N0.getOpcode() == ISD::EXTRACT_SUBVECTOR &&
-      N1.getOpcode() == ISD::EXTRACT_SUBVECTOR &&
-      N0.getConstantOperandAPInt(1) == 0 &&
-      N1.getConstantOperandAPInt(1) == (NumDstElts / 2) &&
-      N0.getOperand(0) == N1.getOperand(0) && VT.is128BitVector() &&
-      N0.getOperand(0).getValueType().is256BitVector()) {
-    // TODO - support target/faux shuffles.
-    SDValue Vec = peekThroughBitcasts(N0.getOperand(0));
-    if (auto *SVN = dyn_cast<ShuffleVectorSDNode>(Vec)) {
-      // To keep the PACK LHS/RHS coherency, we must be able to scale the unary
-      // shuffle to a vXi64 width - we can probably relax this in the future.
-      SmallVector<int, 4> ShuffleMask;
-      if (SVN->getOperand(1).isUndef() &&
-          scaleShuffleElements(SVN->getMask(), 4, ShuffleMask)) {
-        SDLoc DL(N);
-        SDValue Lo, Hi;
-        std::tie(Lo, Hi) = DAG.SplitVector(SVN->getOperand(0), DL);
-        Lo = DAG.getBitcast(N0.getValueType(), Lo);
-        Hi = DAG.getBitcast(N1.getValueType(), Hi);
-        SDValue Res = DAG.getNode(Opcode, DL, VT, Lo, Hi);
-        Res = DAG.getBitcast(MVT::v4i32, Res);
-        Res = DAG.getVectorShuffle(MVT::v4i32, DL, Res, Res, ShuffleMask);
-        return DAG.getBitcast(VT, Res);
-      }
-    }
-  }
+  // Try to fold PACK(SHUFFLE(),SHUFFLE()) -> SHUFFLE(PACK()).
+  if (SDValue V = combineVectorPackWithShuffle(N, DAG))
+    return V;
 
   // Try to combine a PACKUSWB/PACKSSWB implemented truncate with a regular
   // truncate to create a larger truncate.
