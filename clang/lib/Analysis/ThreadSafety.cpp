@@ -1266,13 +1266,23 @@ ClassifyDiagnostic(const AttrTy *A) {
 }
 
 bool ThreadSafetyAnalyzer::inCurrentScope(const CapabilityExpr &CapE) {
-  if (!CurrentMethod)
-      return false;
-  if (const auto *P = dyn_cast_or_null<til::Project>(CapE.sexpr())) {
-    const auto *VD = P->clangDecl();
-    if (VD)
-      return VD->getDeclContext() == CurrentMethod->getDeclContext();
+  const threadSafety::til::SExpr *SExp = CapE.sexpr();
+  assert(SExp && "Null expressions should be ignored");
+
+  // Global variables are always in scope.
+  if (const auto *LP = dyn_cast<til::LiteralPtr>(SExp)) {
+    const ValueDecl *VD = LP->clangDecl();
+    return VD->isDefinedOutsideFunctionOrMethod();
   }
+
+  // Members are in scope from methods of the same class.
+  if (const auto *P = dyn_cast<til::Project>(SExp)) {
+    if (!CurrentMethod)
+      return false;
+    const ValueDecl *VD = P->clangDecl();
+    return VD->getDeclContext() == CurrentMethod->getDeclContext();
+  }
+
   return false;
 }
 
@@ -1641,8 +1651,7 @@ void BuildLockset::warnIfMutexNotHeld(const NamedDecl *D, const Expr *Exp,
     // Otherwise the negative requirement must be propagated to the caller.
     LDat = FSet.findLock(Analyzer->FactMan, Cp);
     if (!LDat) {
-      Analyzer->Handler.handleMutexNotHeld("", D, POK, Cp.toString(),
-                                           LK_Shared, Loc);
+      Analyzer->Handler.handleNegativeNotHeld(D, Cp.toString(), Loc);
     }
     return;
   }

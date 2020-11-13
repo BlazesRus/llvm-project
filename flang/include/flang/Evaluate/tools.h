@@ -813,6 +813,7 @@ template <typename A> bool IsAllocatableOrPointer(const A &x) {
 
 // Procedure and pointer detection predicates
 bool IsProcedure(const Expr<SomeType> &);
+bool IsFunction(const Expr<SomeType> &);
 bool IsProcedurePointer(const Expr<SomeType> &);
 bool IsNullPointer(const Expr<SomeType> &);
 
@@ -864,7 +865,7 @@ parser::Message *AttachDeclaration(parser::Message &, const Symbol &);
 parser::Message *AttachDeclaration(parser::Message *, const Symbol &);
 template <typename MESSAGES, typename... A>
 parser::Message *SayWithDeclaration(
-    MESSAGES &messages, const Symbol &symbol, A &&... x) {
+    MESSAGES &messages, const Symbol &symbol, A &&...x) {
   return AttachDeclaration(messages.Say(std::forward<A>(x)...), symbol);
 }
 
@@ -891,6 +892,13 @@ template <typename T> bool IsExpandableScalar(const Expr<T> &expr) {
   return !UnexpandabilityFindingVisitor{}(expr);
 }
 
+// Common handling for procedure pointer compatibility of left- and right-hand
+// sides.  Returns nullopt if they're compatible.  Otherwise, it returns a
+// message that needs to be augmented by the names of the left and right sides
+std::optional<parser::MessageFixedText> CheckProcCompatibility(bool isCall,
+    const std::optional<characteristics::Procedure> &lhsProcedure,
+    const characteristics::Procedure *rhsProcedure);
+
 } // namespace Fortran::evaluate
 
 namespace Fortran::semantics {
@@ -908,6 +916,7 @@ bool IsProcedure(const Symbol &);
 bool IsProcedurePointer(const Symbol &);
 bool IsSaved(const Symbol &); // saved implicitly or explicitly
 bool IsDummy(const Symbol &);
+bool IsFunctionResult(const Symbol &);
 
 // Follow use, host, and construct assocations to a variable, if any.
 const Symbol *GetAssociationRoot(const Symbol &);

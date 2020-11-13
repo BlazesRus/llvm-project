@@ -89,8 +89,8 @@ void DWARFExpression::DumpLocation(Stream *s, const DataExtractor &data,
                                    lldb::DescriptionLevel level,
                                    ABI *abi) const {
   llvm::DWARFExpression(data.GetAsLLVM(), data.GetAddressByteSize())
-      .print(s->AsRawOstream(), abi ? &abi->GetMCRegisterInfo() : nullptr,
-             nullptr);
+      .print(s->AsRawOstream(), llvm::DIDumpOptions(),
+             abi ? &abi->GetMCRegisterInfo() : nullptr, nullptr);
 }
 
 void DWARFExpression::SetLocationListAddresses(addr_t cu_file_addr,
@@ -158,7 +158,7 @@ static bool ReadRegisterValueAsScalar(RegisterContext *reg_ctx,
                                       Value &value) {
   if (reg_ctx == nullptr) {
     if (error_ptr)
-      error_ptr->SetErrorStringWithFormat("No register context in frame.\n");
+      error_ptr->SetErrorString("No register context in frame.\n");
   } else {
     uint32_t native_reg =
         reg_ctx->ConvertRegisterKindToRegisterNumber(reg_kind, reg_num);
@@ -1036,22 +1036,21 @@ bool DWARFExpression::Evaluate(
             LLDB_INVALID_ADDRESS);
         if (!module_sp) {
           if (error_ptr)
-            error_ptr->SetErrorStringWithFormat(
+            error_ptr->SetErrorString(
                 "need module to resolve file address for DW_OP_deref");
           return false;
         }
         Address so_addr;
         if (!module_sp->ResolveFileAddress(file_addr, so_addr)) {
           if (error_ptr)
-            error_ptr->SetErrorStringWithFormat(
+            error_ptr->SetErrorString(
                 "failed to resolve file address in module");
           return false;
         }
         addr_t load_Addr = so_addr.GetLoadAddress(exe_ctx->GetTargetPtr());
         if (load_Addr == LLDB_INVALID_ADDRESS) {
           if (error_ptr)
-            error_ptr->SetErrorStringWithFormat(
-                "failed to resolve load address");
+            error_ptr->SetErrorString("failed to resolve load address");
           return false;
         }
         stack.back().GetScalar() = load_Addr;
@@ -1079,13 +1078,12 @@ bool DWARFExpression::Evaluate(
             }
           } else {
             if (error_ptr)
-              error_ptr->SetErrorStringWithFormat(
-                  "NULL process for DW_OP_deref.\n");
+              error_ptr->SetErrorString("NULL process for DW_OP_deref.\n");
             return false;
           }
         } else {
           if (error_ptr)
-            error_ptr->SetErrorStringWithFormat(
+            error_ptr->SetErrorString(
                 "NULL execution context for DW_OP_deref.\n");
           return false;
         }
@@ -1199,13 +1197,12 @@ bool DWARFExpression::Evaluate(
             }
           } else {
             if (error_ptr)
-              error_ptr->SetErrorStringWithFormat(
-                  "NULL process for DW_OP_deref.\n");
+              error_ptr->SetErrorString("NULL process for DW_OP_deref.\n");
             return false;
           }
         } else {
           if (error_ptr)
-            error_ptr->SetErrorStringWithFormat(
+            error_ptr->SetErrorString(
                 "NULL execution context for DW_OP_deref.\n");
           return false;
         }
@@ -2036,7 +2033,7 @@ bool DWARFExpression::Evaluate(
         }
       } else {
         if (error_ptr)
-          error_ptr->SetErrorStringWithFormat(
+          error_ptr->SetErrorString(
               "NULL execution context for DW_OP_fbreg.\n");
         return false;
       }
@@ -2250,6 +2247,29 @@ bool DWARFExpression::Evaluate(
         }
       }
       break;
+
+    // OPCODE: DW_OP_implicit_value
+    // OPERANDS: 2
+    //      ULEB128  size of the value block in bytes
+    //      uint8_t* block bytes encoding value in target's memory
+    //      representation
+    // DESCRIPTION: Value is immediately stored in block in the debug info with
+    // the memory representation of the target.
+    case DW_OP_implicit_value: {
+      const uint32_t len = opcodes.GetULEB128(&offset);
+      const void *data = opcodes.GetData(&offset, len);
+
+      if (!data) {
+        LLDB_LOG(log, "Evaluate_DW_OP_implicit_value: could not be read data");
+        LLDB_ERRORF(error_ptr, "Could not evaluate %s.",
+                    DW_OP_value_to_name(op));
+        return false;
+      }
+
+      Value result(data, len);
+      stack.push_back(result);
+      break;
+    }
 
     // OPCODE: DW_OP_push_object_address
     // OPERANDS: none

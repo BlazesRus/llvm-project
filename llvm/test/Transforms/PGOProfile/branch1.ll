@@ -32,19 +32,19 @@ define i32 @test_br_1(i32 %i) {
 ; USE-SAME: !prof ![[FUNC_ENTRY_COUNT:[0-9]+]]
 entry:
 ; GEN: entry:
-; GEN: call void @llvm.instrprof.increment(i8* getelementptr inbounds ([9 x i8], [9 x i8]* @__profn_test_br_1, i32 0, i32 0), i64 25571299074, i32 2, i32 0)
+; GEN: call void @llvm.instrprof.increment(i8* getelementptr inbounds ([9 x i8], [9 x i8]* @__profn_test_br_1, i32 0, i32 0), i64 {{[0-9]+}}, i32 2, i32 0)
   %cmp = icmp sgt i32 %i, 0
   br i1 %cmp, label %if.then, label %if.end
 ; USE: br i1 %cmp, label %if.then, label %if.end
 ; USE-SAME: !prof ![[BW_ENTRY:[0-9]+]]
-; USE-DAG: ![[BW_ENTRY]] = !{!"branch_weights", i32 2, i32 1}
+; USE-DAG: ![[BW_ENTRY]] = !{!"branch_weights", i64 2, i64 1}
 ; USE-LARGE: br i1 %cmp, label %if.then, label %if.end
 ; USE-LARGE-SAME: !prof ![[BW_L_ENTRY:[0-9]+]]
-; USE-LARGE-DAG: ![[BW_L_ENTRY]] = !{!"branch_weights", i32 -1431655766, i32 1431655765}
+; USE-LARGE-DAG: ![[BW_L_ENTRY]] = !{!"branch_weights", i64 2863311530, i64 1431655765}
 
 if.then:
 ; GEN: if.then:
-; GEN: call void @llvm.instrprof.increment(i8* getelementptr inbounds ([9 x i8], [9 x i8]* @__profn_test_br_1, i32 0, i32 0), i64 25571299074, i32 2, i32 1)
+; GEN: call void @llvm.instrprof.increment(i8* getelementptr inbounds ([9 x i8], [9 x i8]* @__profn_test_br_1, i32 0, i32 0), i64 {{[0-9]+}}, i32 2, i32 1)
   %add = add nsw i32 %i, 2
   br label %if.end
 

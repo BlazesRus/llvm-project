@@ -41,11 +41,14 @@ add_flang_library(FortranEvaluate
   LINK_LIBS
   FortranCommon
   FortranDecimal
-  FortranSemantics
   FortranParser
   ${LIBPGMATH}
 
+  LINK_COMPONENTS
+  Support
+
   DEPENDS
+  acc_gen
   omp_gen
 )
 

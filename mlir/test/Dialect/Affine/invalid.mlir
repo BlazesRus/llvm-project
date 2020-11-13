@@ -266,6 +266,47 @@ func @affine_parallel(%arg0 : index, %arg1 : index, %arg2 : index) {
 
 // -----
 
+// CHECK-LABEL: @affine_parallel
+
+func @affine_parallel(%arg0 : index, %arg1 : index, %arg2 : index) {
+  %0 = alloc() : memref<100x100xf32>
+  //  expected-error@+1 {{reduction must be specified for each output}}
+  %1 = affine.parallel (%i, %j) = (0, 0) to (100, 100) step (10, 10) -> (f32) {
+    %2 = affine.load %0[%i, %j] : memref<100x100xf32>
+    affine.yield %2 : f32
+  }
+  return
+}
+
+// -----
+
+// CHECK-LABEL: @affine_parallel
+
+func @affine_parallel(%arg0 : index, %arg1 : index, %arg2 : index) {
+  %0 = alloc() : memref<100x100xf32>
+  //  expected-error@+1 {{invalid reduction value: "bad"}}
+  %1 = affine.parallel (%i, %j) = (0, 0) to (100, 100) step (10, 10) reduce ("bad") -> (f32) {
+    %2 = affine.load %0[%i, %j] : memref<100x100xf32>
+    affine.yield %2 : f32
+  }
+  return
+}
+
+// -----
+// CHECK-LABEL: @affine_parallel
+
+func @affine_parallel(%arg0 : index, %arg1 : index, %arg2 : index) {
+  %0 = alloc() : memref<100x100xi32>
+  %1 = affine.parallel (%i, %j) = (0, 0) to (100, 100) step (10, 10) reduce ("minf") -> (f32) {
+    %2 = affine.load %0[%i, %j] : memref<100x100xi32>
+    //  expected-error@+1 {{types mismatch between yield op and its parent}}
+    affine.yield %2 : i32
+  }
+  return
+}
+
+// -----
+
 func @vector_load_invalid_vector_type() {
   %0 = alloc() : memref<100xf32>
   affine.for %i0 = 0 to 16 step 8 {
@@ -338,3 +379,14 @@ func @affine_if_with_else_region_args(%N: index) {
   return
 }
 
+// -----
+
+func @affine_for_iter_args_mismatch(%buffer: memref<1024xf32>) -> f32 {
+  %sum_0 = constant 0.0 : f32
+  // expected-error@+1 {{mismatch between the number of loop-carried values and results}}
+  %res = affine.for %i = 0 to 10 step 2 iter_args(%sum_iter = %sum_0) -> (f32, f32) {
+    %t = affine.load %buffer[%i] : memref<1024xf32>
+    affine.yield %t : f32
+  }
+  return %res : f32
+}

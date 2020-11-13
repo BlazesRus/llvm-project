@@ -25,9 +25,6 @@
 
 using namespace mlir;
 
-// Load the SPIRV dialect
-static DialectRegistration<spirv::SPIRVDialect> SPIRVRegistration;
-
 using ::testing::StrEq;
 
 //===----------------------------------------------------------------------===//
@@ -39,6 +36,7 @@ using ::testing::StrEq;
 class DeserializationTest : public ::testing::Test {
 protected:
   DeserializationTest() {
+    context.getOrLoadDialect<mlir::spirv::SPIRVDialect>();
     // Register a diagnostic handler to capture the diagnostic so that we can
     // check it later.
     context.getDiagEngine().registerHandler([&](Diagnostic &diag) {
@@ -159,7 +157,7 @@ TEST_F(DeserializationTest, InsufficientWordFailure) {
   addHeader();
   binary.push_back((2u << 16) |
                    static_cast<uint32_t>(spirv::Opcode::OpTypeVoid));
-  // Missing word for type <id>
+  // Missing word for type <id>.
 
   ASSERT_FALSE(deserialize());
   expectDiagnostic("insufficient words for the last instruction");
@@ -248,7 +246,7 @@ TEST_F(DeserializationTest, FunctionMissingEndFailure) {
   auto voidType = addVoidType();
   auto fnType = addFunctionType(voidType, {});
   addFunction(voidType, fnType);
-  // Missing OpFunctionEnd
+  // Missing OpFunctionEnd.
 
   ASSERT_FALSE(deserialize());
   expectDiagnostic("expected OpFunctionEnd instruction");
@@ -260,7 +258,7 @@ TEST_F(DeserializationTest, FunctionMissingParameterFailure) {
   auto i32Type = addIntType(32);
   auto fnType = addFunctionType(voidType, {i32Type});
   addFunction(voidType, fnType);
-  // Missing OpFunctionParameter
+  // Missing OpFunctionParameter.
 
   ASSERT_FALSE(deserialize());
   expectDiagnostic("expected OpFunctionParameter instruction");
@@ -271,7 +269,7 @@ TEST_F(DeserializationTest, FunctionMissingLabelForFirstBlockFailure) {
   auto voidType = addVoidType();
   auto fnType = addFunctionType(voidType, {});
   addFunction(voidType, fnType);
-  // Missing OpLabel
+  // Missing OpLabel.
   addReturn();
   addFunctionEnd();
 

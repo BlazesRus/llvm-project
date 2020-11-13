@@ -11,7 +11,7 @@ unittest("BasicTests") {
     "CharInfoTest.cpp",
     "DiagnosticTest.cpp",
     "FileManagerTest.cpp",
-    "FixedPointTest.cpp",
+    "LineOffsetMappingTest.cpp",
     "SourceManagerTest.cpp",
   ]
 }

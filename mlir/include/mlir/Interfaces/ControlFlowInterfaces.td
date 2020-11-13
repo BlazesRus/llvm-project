@@ -25,6 +25,8 @@ def BranchOpInterface : OpInterface<"BranchOpInterface"> {
     This interface provides information for branching terminator operations,
     i.e. terminator operations with successors.
   }];
+  let cppNamespace = "::mlir";
+
   let methods = [
     InterfaceMethod<[{
         Returns a mutable range of operands that correspond to the arguments of
@@ -96,12 +98,14 @@ def RegionBranchOpInterface : OpInterface<"RegionBranchOpInterface"> {
     branching behavior between held regions, i.e. this interface allows for
     expressing control flow information for region holding operations.
   }];
+  let cppNamespace = "::mlir";
+
   let methods = [
     InterfaceMethod<[{
         Returns the operands of this operation used as the entry arguments when
-        entering the region at `index`, which was specified as a successor by
-        `getSuccessorRegions`. These operands should correspond 1-1 with the
-        successor inputs specified in `getSuccessorRegions`, and may corre
+        entering the region at `index`, which was specified as a successor of this
+        operation by `getSuccessorRegions`. These operands should correspond 1-1
+        with the successor inputs specified in `getSuccessorRegions`.
       }],
       "OperandRange", "getSuccessorEntryOperands",
       (ins "unsigned":$index), [{}], /*defaultImplementation=*/[{
@@ -128,6 +132,26 @@ def RegionBranchOpInterface : OpInterface<"RegionBranchOpInterface"> {
            "SmallVectorImpl<RegionSuccessor> &":$regions)
     >
   ];
+
+  let verify = [{
+    static_assert(!ConcreteOpType::template hasTrait<OpTrait::ZeroRegion>(),
+                  "expected operation to have non-zero regions");
+    return success();
+  }];
+
+  let extraClassDeclaration = [{
+    /// Convenience helper in case none of the operands is known.
+    void getSuccessorRegions(Optional<unsigned> index,
+                             SmallVectorImpl<RegionSuccessor> &regions) {
+       SmallVector<Attribute, 2> nullAttrs(getOperation()->getNumOperands());
+       getSuccessorRegions(index, nullAttrs, regions);
+    }
+
+    /// Verify types along control flow edges described by this interface.
+    static LogicalResult verifyTypes(Operation *op) {
+      return detail::verifyTypesAlongControlFlowEdges(op);
+    }
+  }];
 }
 
 //===----------------------------------------------------------------------===//

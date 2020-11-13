@@ -92,7 +92,8 @@ unsigned WebAssemblyWasmObjectWriter::getRelocType(const MCValue &Target,
       return wasm::R_WASM_TABLE_INDEX_SLEB;
     return wasm::R_WASM_MEMORY_ADDR_SLEB;
   case WebAssembly::fixup_sleb128_i64:
-    assert(SymA.isData());
+    if (SymA.isFunction())
+      return wasm::R_WASM_TABLE_INDEX_SLEB64;
     return wasm::R_WASM_MEMORY_ADDR_SLEB64;
   case WebAssembly::fixup_uleb128_i32:
     if (SymA.isGlobal())
@@ -101,6 +102,8 @@ unsigned WebAssemblyWasmObjectWriter::getRelocType(const MCValue &Target,
       return wasm::R_WASM_FUNCTION_INDEX_LEB;
     if (SymA.isEvent())
       return wasm::R_WASM_EVENT_INDEX_LEB;
+    if (SymA.isTable())
+      return wasm::R_WASM_TABLE_NUMBER_LEB;
     return wasm::R_WASM_MEMORY_ADDR_LEB;
   case WebAssembly::fixup_uleb128_i64:
     assert(SymA.isData());
@@ -119,6 +122,8 @@ unsigned WebAssemblyWasmObjectWriter::getRelocType(const MCValue &Target,
     }
     return wasm::R_WASM_MEMORY_ADDR_I32;
   case FK_Data_8:
+    if (SymA.isFunction())
+      return wasm::R_WASM_TABLE_INDEX_I64;
     assert(SymA.isData());
     return wasm::R_WASM_MEMORY_ADDR_I64;
   default:

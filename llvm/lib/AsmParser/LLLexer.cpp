@@ -678,6 +678,7 @@ lltok::Kind LLLexer::LexIdentifier() {
   KEYWORD(signext);
   KEYWORD(speculatable);
   KEYWORD(sret);
+  KEYWORD(nossp);
   KEYWORD(ssp);
   KEYWORD(sspreq);
   KEYWORD(sspstrong);
@@ -697,6 +698,8 @@ lltok::Kind LLLexer::LexIdentifier() {
   KEYWORD(writeonly);
   KEYWORD(zeroext);
   KEYWORD(immarg);
+  KEYWORD(byref);
+  KEYWORD(mustprogress);
 
   KEYWORD(type);
   KEYWORD(opaque);

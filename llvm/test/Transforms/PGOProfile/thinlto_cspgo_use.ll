@@ -3,7 +3,7 @@
 ; RUN: opt -module-summary %s -o %t1.bc
 ; RUN: opt -module-summary %S/Inputs/thinlto_cspgo_bar_use.ll -o %t2.bc
 ; RUN: llvm-profdata merge %S/Inputs/thinlto_cs.proftext -o %t3.profdata
-; RUN: llvm-lto2 run -lto-cspgo-profile-file=%t3.profdata -save-temps -o %t %t1.bc %t2.bc \
+; RUN: llvm-lto2 run -lto-cspgo-profile-file=%t3.profdata -pgo-instrument-entry=false -save-temps -o %t %t1.bc %t2.bc \
 ; RUN:   -r=%t1.bc,foo,pl \
 ; RUN:   -r=%t1.bc,bar,l \
 ; RUN:   -r=%t1.bc,main,plx \
@@ -14,8 +14,8 @@
 
 ; CSUSE: {{![0-9]+}} = !{i32 1, !"ProfileSummary", {{![0-9]+}}}
 ; CSUSE: {{![0-9]+}} = !{i32 1, !"CSProfileSummary", {{![0-9]+}}}
-; CSUSE-DAG: {{![0-9]+}} = !{!"branch_weights", i32 100000, i32 0}
-; CSUSE-DAG: {{![0-9]+}} = !{!"branch_weights", i32 0, i32 100000}
+; CSUSE-DAG: {{![0-9]+}} = !{!"branch_weights", i64 100000, i64 0}
+; CSUSE-DAG: {{![0-9]+}} = !{!"branch_weights", i64 0, i64 100000}
 
 source_filename = "cspgo.c"
 target datalayout = "e-m:e-p270:32:32-p271:32:32-p272:64:64-i64:64-f80:128-n8:16:32:64-S128"
@@ -79,4 +79,4 @@ attributes #0 = { "target-cpu"="x86-64" }
 !26 = !{i32 999990, i64 100000, i32 4}
 !27 = !{i32 999999, i64 1, i32 6}
 !29 = !{!"function_entry_count", i64 1}
-!30 = !{!"branch_weights", i32 100000, i32 1}
+!30 = !{!"branch_weights", i64 100000, i64 1}

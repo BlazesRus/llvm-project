@@ -773,6 +773,11 @@ void CodeGenPGO::assignRegionCounters(GlobalDecl GD, llvm::Function *Fn) {
   if (!D->hasBody())
     return;
 
+  // Skip CUDA/HIP kernel launch stub functions.
+  if (CGM.getLangOpts().CUDA && !CGM.getLangOpts().CUDAIsDevice &&
+      D->hasAttr<CUDAGlobalAttr>())
+    return;
+
   bool InstrumentRegions = CGM.getCodeGenOpts().hasProfileClangInstr();
   llvm::IndexedInstrProfReader *PGOReader = CGM.getPGOReader();
   if (!InstrumentRegions && !PGOReader)
@@ -829,6 +834,18 @@ void CodeGenPGO::mapRegionCounters(const Decl *D) {
 
 bool CodeGenPGO::skipRegionMappingForDecl(const Decl *D) {
   if (!D->getBody())
+    return true;
+
+  // Skip host-only functions in the CUDA device compilation and device-only
+  // functions in the host compilation. Just roughly filter them out based on
+  // the function attributes. If there are effectively host-only or device-only
+  // ones, their coverage mapping may still be generated.
+  if (CGM.getLangOpts().CUDA &&
+      ((CGM.getLangOpts().CUDAIsDevice && !D->hasAttr<CUDADeviceAttr>() &&
+        !D->hasAttr<CUDAGlobalAttr>()) ||
+       (!CGM.getLangOpts().CUDAIsDevice &&
+        (D->hasAttr<CUDAGlobalAttr>() ||
+         (!D->hasAttr<CUDAHostAttr>() && D->hasAttr<CUDADeviceAttr>())))))
     return true;
 
   // Don't map the functions in system headers.
@@ -996,46 +1013,25 @@ void CodeGenPGO::loadRegionCounts(llvm::IndexedInstrProfReader *PGOReader,
   RegionCounts = ProfRecord->Counts;
 }
 
-/// Calculate what to divide by to scale weights.
-///
-/// Given the maximum weight, calculate a divisor that will scale all the
-/// weights to strictly less than UINT32_MAX.
-static uint64_t calculateWeightScale(uint64_t MaxWeight) {
-  return MaxWeight < UINT32_MAX ? 1 : MaxWeight / UINT32_MAX + 1;
-}
-
-/// Scale an individual branch weight (and add 1).
-///
-/// Scale a 64-bit weight down to 32-bits using \c Scale.
+/// Scale an individual branch weight (add 1).
 ///
 /// According to Laplace's Rule of Succession, it is better to compute the
 /// weight based on the count plus 1, so universally add 1 to the value.
-///
-/// \pre \c Scale was calculated by \a calculateWeightScale() with a weight no
-/// greater than \c Weight.
-static uint32_t scaleBranchWeight(uint64_t Weight, uint64_t Scale) {
-  assert(Scale && "scale by 0?");
-  uint64_t Scaled = Weight / Scale + 1;
-  assert(Scaled <= UINT32_MAX && "overflow 32-bits");
-  return Scaled;
-}
+static uint64_t scaleBranchWeight(uint64_t Weight) { return Weight + 1; }
 
 llvm::MDNode *CodeGenFunction::createProfileWeights(uint64_t TrueCount,
-                                                    uint64_t FalseCount) {
+                                                    uint64_t FalseCount) const {
   // Check for empty weights.
   if (!TrueCount && !FalseCount)
     return nullptr;
 
-  // Calculate how to scale down to 32-bits.
-  uint64_t Scale = calculateWeightScale(std::max(TrueCount, FalseCount));
-
   llvm::MDBuilder MDHelper(CGM.getLLVMContext());
-  return MDHelper.createBranchWeights(scaleBranchWeight(TrueCount, Scale),
-                                      scaleBranchWeight(FalseCount, Scale));
+  return MDHelper.createBranchWeights(scaleBranchWeight(TrueCount),
+                                      scaleBranchWeight(FalseCount));
 }
 
 llvm::MDNode *
-CodeGenFunction::createProfileWeights(ArrayRef<uint64_t> Weights) {
+CodeGenFunction::createProfileWeights(ArrayRef<uint64_t> Weights) const {
   // We need at least two elements to create meaningful weights.
   if (Weights.size() < 2)
     return nullptr;
@@ -1045,20 +1041,18 @@ CodeGenFunction::createProfileWeights(ArrayRef<uint64_t> Weights) {
   if (MaxWeight == 0)
     return nullptr;
 
-  // Calculate how to scale down to 32-bits.
-  uint64_t Scale = calculateWeightScale(MaxWeight);
-
-  SmallVector<uint32_t, 16> ScaledWeights;
+  SmallVector<uint64_t, 16> ScaledWeights;
   ScaledWeights.reserve(Weights.size());
   for (uint64_t W : Weights)
-    ScaledWeights.push_back(scaleBranchWeight(W, Scale));
+    ScaledWeights.push_back(scaleBranchWeight(W));
 
   llvm::MDBuilder MDHelper(CGM.getLLVMContext());
   return MDHelper.createBranchWeights(ScaledWeights);
 }
 
-llvm::MDNode *CodeGenFunction::createProfileWeightsForLoop(const Stmt *Cond,
-                                                           uint64_t LoopCount) {
+llvm::MDNode *
+CodeGenFunction::createProfileWeightsForLoop(const Stmt *Cond,
+                                             uint64_t LoopCount) const {
   if (!PGO.haveRegionCounts())
     return nullptr;
   Optional<uint64_t> CondCount = PGO.getStmtCount(Cond);

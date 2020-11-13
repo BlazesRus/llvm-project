@@ -20,18 +20,13 @@ namespace clang {
 namespace ento {
 namespace smartptr {
 
-/// Set of STL smart pointer class which we are trying to model.
-const llvm::StringSet<> StdSmartPtrs = {
-    "shared_ptr",
-    "unique_ptr",
-    "weak_ptr",
-};
-
 /// Returns true if the event call is on smart pointer.
 bool isStdSmartPtrCall(const CallEvent &Call);
 
 /// Returns whether the smart pointer is null or not.
 bool isNullSmartPtr(const ProgramStateRef State, const MemRegion *ThisRegion);
+
+const BugType *getNullDereferenceBugType();
 
 } // namespace smartptr
 } // namespace ento

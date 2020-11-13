@@ -79,24 +79,23 @@ TEST(DWARFExpression, DW_OP_convert) {
   /// Auxiliary debug info.
   const char *yamldata =
       "debug_abbrev:\n"
-      "  - Code:            0x00000001\n"
-      "    Tag:             DW_TAG_compile_unit\n"
-      "    Children:        DW_CHILDREN_yes\n"
-      "    Attributes:\n"
-      "      - Attribute:       DW_AT_language\n"
-      "        Form:            DW_FORM_data2\n"
-      "  - Code:            0x00000002\n"
-      "    Tag:             DW_TAG_base_type\n"
-      "    Children:        DW_CHILDREN_no\n"
-      "    Attributes:\n"
-      "      - Attribute:       DW_AT_encoding\n"
-      "        Form:            DW_FORM_data1\n"
-      "      - Attribute:       DW_AT_byte_size\n"
-      "        Form:            DW_FORM_data1\n"
+      "  - Table:\n"
+      "      - Code:            0x00000001\n"
+      "        Tag:             DW_TAG_compile_unit\n"
+      "        Children:        DW_CHILDREN_yes\n"
+      "        Attributes:\n"
+      "          - Attribute:       DW_AT_language\n"
+      "            Form:            DW_FORM_data2\n"
+      "      - Code:            0x00000002\n"
+      "        Tag:             DW_TAG_base_type\n"
+      "        Children:        DW_CHILDREN_no\n"
+      "        Attributes:\n"
+      "          - Attribute:       DW_AT_encoding\n"
+      "            Form:            DW_FORM_data1\n"
+      "          - Attribute:       DW_AT_byte_size\n"
+      "            Form:            DW_FORM_data1\n"
       "debug_info:\n"
-      "  - Length:          0\n"
-      "    Version:         4\n"
-      "    AbbrOffset:      0\n"
+      "  - Version:         4\n"
       "    AddrSize:        8\n"
       "    Entries:\n"
       "      - AbbrCode:        0x00000001\n"
@@ -132,9 +131,7 @@ TEST(DWARFExpression, DW_OP_convert) {
       "        Values:\n"
       "          - Value:           0x000000000000000b\n" // DW_ATE_numeric_string
       "          - Value:           0x0000000000000001\n"
-      ""
-      "      - AbbrCode:        0x00000000\n"
-      "        Values:          []\n";
+      "      - AbbrCode:        0x00000000\n";
   uint8_t offs_uint32_t = 0x0000000e;
   uint8_t offs_uint64_t = 0x00000011;
   uint8_t offs_sint64_t = 0x00000014;
@@ -219,6 +216,14 @@ TEST(DWARFExpression, DW_OP_piece) {
       // Note that the "00" should really be "undef", but we can't
       // represent that yet.
       llvm::HasValue(GetScalar(16, 0xff00, true)));
+}
+
+TEST(DWARFExpression, DW_OP_implicit_value) {
+  unsigned char bytes = 4;
+
+  EXPECT_THAT_EXPECTED(
+      Evaluate({DW_OP_implicit_value, bytes, 0x11, 0x22, 0x33, 0x44}),
+      llvm::HasValue(GetScalar(8 * bytes, 0x44332211, true)));
 }
 
 TEST(DWARFExpression, DW_OP_unknown) {

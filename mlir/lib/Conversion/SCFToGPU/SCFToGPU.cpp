@@ -417,8 +417,8 @@ static LogicalResult processParallelLoop(
 
     if (isMappedToProcessor(processor)) {
       // Use the corresponding thread/grid index as replacement for the loop iv.
-      Value operand = launchOp.body().front().getArgument(
-          getLaunchOpArgumentNum(processor));
+      Value operand =
+          launchOp.body().getArgument(getLaunchOpArgumentNum(processor));
       // Take the indexmap and add the lower bound and step computations in.
       // This computes operand * step + lowerBound.
       // Use an affine map here so that it composes nicely with the provided
@@ -466,11 +466,10 @@ static LogicalResult processParallelLoop(
           // Compute the number of iterations needed. We compute this as an
           // affine expression ceilDiv (upperBound - lowerBound) step. We use
           // affine.apply here so that it composes nicely with the provided map.
-          AffineMap stepMap =
-              AffineMap::get(0, 3,
-                             ((rewriter.getAffineSymbolExpr(0) -
-                               rewriter.getAffineSymbolExpr(1))
-                                  .ceilDiv(rewriter.getAffineSymbolExpr(2))));
+          AffineMap stepMap = AffineMap::get(
+              1, 2,
+              ((rewriter.getAffineDimExpr(0) - rewriter.getAffineSymbolExpr(0))
+                   .ceilDiv(rewriter.getAffineSymbolExpr(1))));
           Value launchBound = rewriter.create<AffineApplyOp>(
               loc, annotation.bound().getValue().compose(stepMap),
               ValueRange{
@@ -517,6 +516,16 @@ static LogicalResult processParallelLoop(
     }
     cloningMap.map(iv, newIndex);
   }
+
+  // Propagate custom user defined optional attributes, that can be used at
+  // later stage, such as extension data for GPU kernel dispatch
+  for (const auto &namedAttr : parallelOp.getAttrs()) {
+    if (namedAttr.first == gpu::getMappingAttrName() ||
+        namedAttr.first == ParallelOp::getOperandSegmentSizeAttr())
+      continue;
+    launchOp.setAttr(namedAttr.first, namedAttr.second);
+  }
+
   Block *body = parallelOp.getBody();
   worklist.reserve(worklist.size() + body->getOperations().size());
   for (Operation &op : llvm::reverse(body->without_terminator()))
